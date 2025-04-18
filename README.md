@@ -17,7 +17,7 @@ Certifique-se de ter o seguinte instalado em seu sistema:
     ```
 2. **Crie o ambiente virtual**:
    ```sh
-   python -m venv venv
+   python3 -m venv venv
    ```
 
 3. **Ative o ambiente virtual**:
@@ -39,5 +39,5 @@ Certifique-se de ter o seguinte instalado em seu sistema:
 Para executar o script, use o seguinte comando:
 
 ```sh
-python test_opencv.py <CAMINHO_RELATIVO_DA_IMAGEM>
+python3 test_opencv.py <CAMINHO_RELATIVO_DA_IMAGEM>
 ```
