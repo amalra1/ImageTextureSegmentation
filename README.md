@@ -41,3 +41,10 @@ Para executar o script, use o seguinte comando:
 ```sh
 python3 test_opencv.py <CAMINHO_RELATIVO_DA_IMAGEM>
 ```
+
+Para remover todos os resultados, execute:
+
+```sh
+python3 test_opencv.py clear
+```
+  
