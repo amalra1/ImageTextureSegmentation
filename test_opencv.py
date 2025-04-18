@@ -3,10 +3,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import os
+import shutil
+
+# Se o argumento "clear" for passado sozinho, limpa a pasta 'resultados' inteira
+if len(sys.argv) == 2 and sys.argv[1] == "clear":
+    pasta_resultados = "resultados"
+    if os.path.exists(pasta_resultados):
+        shutil.rmtree(pasta_resultados)
+        print(f"Pasta '{pasta_resultados}' limpa com sucesso.")
+    else:
+        print(f"Pasta '{pasta_resultados}' não existe.")
+    sys.exit()
 
 # Verificar se o nome da imagem foi passado como argumento
 if len(sys.argv) < 2:
     print("Uso: python3 script.py nome_da_imagem.jpg")
+    print("Ou:   python3 script.py clear  (para limpar todos os resultados)")
     sys.exit()
 
 # Capturar o nome do arquivo da imagem
@@ -17,6 +29,7 @@ nome_base = os.path.splitext(nome_arquivo)[0]
 # Criar diretório de saída específico para a imagem
 pasta_resultados = os.path.join("resultados", nome_base)
 os.makedirs(pasta_resultados, exist_ok=True)
+
 
 # Carregar imagem original
 imagem = cv2.imread(caminho_imagem)
@@ -70,12 +83,9 @@ def aplicar_filtro(nome, kernel):
     resposta_normalizada = np.uint8(resposta_normalizada)
     mapa_calor = cv2.applyColorMap(resposta_normalizada, cv2.COLORMAP_JET)
 
-    # Adicionar ao acumulado
     respostas_acumuladas.append(resposta_normalizada.astype(np.float32))
 
-    # Plot e salvar resultado
-    plt.figure(figsize=(12, 6))
-
+    plt.figure(figsize=(14, 6))
     plt.subplot(1, 2, 1)
     plt.imshow(cv2.cvtColor(imagem, cv2.COLOR_BGR2RGB))
     plt.title("Imagem Original")
@@ -92,12 +102,50 @@ def aplicar_filtro(nome, kernel):
     plt.close()
     print(f"Mapa de calor ({nome}) salvo em: {saida}")
 
+def aplicar_dog():
+    imagem_gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+
+    # Dois níveis de desfoque (sigmas diferentes)
+    blur1 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=1)
+    blur2 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=2)
+
+    dog = cv2.subtract(blur1, blur2)
+
+    # Normalizar e aplicar colormap como nos outros filtros
+    dog_shifted = dog - dog.min()
+    dog_normalizado = 255 * (dog_shifted / dog_shifted.max())
+    dog_normalizado = np.uint8(dog_normalizado)
+    mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
+
+    # Acumular
+    respostas_acumuladas.append(dog_normalizado.astype(np.float32))
+
+    # Plotar e salvar
+    plt.figure(figsize=(14, 6))
+    plt.subplot(1, 2, 1)
+    plt.imshow(cv2.cvtColor(imagem, cv2.COLOR_BGR2RGB))
+    plt.title("Imagem Original")
+    plt.axis('off')
+
+    plt.subplot(1, 2, 2)
+    plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
+    plt.title("Filtro Circular (DoG)")
+    plt.axis('off')
+
+    plt.tight_layout()
+    saida = os.path.join(pasta_resultados, "heatmap_dog.png")
+    plt.savefig(saida)
+    plt.close()
+    print(f"Mapa de calor (DoG) salvo em: {saida}")
+
+
 # Aplicar os filtros
 aplicar_filtro("Vertical", kernel_sobel_vertical)
 aplicar_filtro("Horizontal", kernel_sobel_horizontal)
 aplicar_filtro("Laplaciano", kernel_laplaciano)
 aplicar_filtro("45", kernel_45)
 aplicar_filtro("135", kernel_135)
+aplicar_dog()  # Fica amarelo o fundo ao invés de azul 
 
 # Criar o heatmap final acumulado
 soma = np.sum(respostas_acumuladas, axis=0)
@@ -105,13 +153,20 @@ soma_normalizada = cv2.normalize(soma, None, 0, 255, cv2.NORM_MINMAX)
 soma_normalizada = np.uint8(soma_normalizada)
 mapa_calor_final = cv2.applyColorMap(soma_normalizada, cv2.COLORMAP_JET)
 
-# Plotar e salvar o heatmap final
-plt.figure(figsize=(8, 6))
+plt.figure(figsize=(14, 6))
+plt.subplot(1, 2, 1)
+plt.imshow(cv2.cvtColor(imagem, cv2.COLOR_BGR2RGB))
+plt.title("Imagem Original")
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
 plt.imshow(cv2.cvtColor(mapa_calor_final, cv2.COLOR_BGR2RGB))
 plt.title("Heatmap Final (Soma dos Filtros)")
 plt.axis('off')
+
 plt.tight_layout()
-saida_final = os.path.join(pasta_resultados, f"heatmap_final.png")
+saida_final = os.path.join(pasta_resultados, "heatmap_final.png")
 plt.savefig(saida_final)
 plt.close()
 print(f"Heatmap final salvo em: {saida_final}")
+
