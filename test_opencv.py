@@ -25,17 +25,38 @@ if imagem is None:
     print(f"Erro ao carregar a imagem '{caminho_imagem}'")
     exit()
 
-# Filtros de textura
-kernel_vertical = np.array([
-    [-1,  2, -1],
-    [-1,  2, -1],
-    [-1,  2, -1]
+# Filtros de Sobel (mais robustos)
+kernel_sobel_vertical = np.array([
+    [-1,  0,  1],
+    [-2,  0,  2],
+    [-1,  0,  1]
 ], dtype=np.float32)
 
-kernel_horizontal = np.array([
-    [-1, -1, -1],
-    [ 2,  2,  2],
-    [-1, -1, -1]
+kernel_sobel_horizontal = np.array([
+    [-1, -2, -1],
+    [ 0,  0,  0],
+    [ 1,  2,  1]
+], dtype=np.float32)
+
+# Filtro Laplaciano
+kernel_laplaciano = np.array([
+    [0,  1, 0],
+    [1, -4, 1],
+    [0,  1, 0]
+], dtype=np.float32)
+
+# Filtro de borda diagonal 45°
+kernel_45 = np.array([
+    [0, -1, -1],
+    [1,  0, -1],
+    [1,  1,  0]
+], dtype=np.float32)
+
+# Filtro de borda diagonal 135°
+kernel_135 = np.array([
+    [1,  1,  0],
+    [-1, 0,  1],
+    [-1, -1,  0]
 ], dtype=np.float32)
 
 # Lista para somar as respostas de todos os filtros
@@ -71,9 +92,12 @@ def aplicar_filtro(nome, kernel):
     plt.close()
     print(f"Mapa de calor ({nome}) salvo em: {saida}")
 
-# Aplicar os filtros definidos
-aplicar_filtro("Vertical", kernel_vertical)
-aplicar_filtro("Horizontal", kernel_horizontal)
+# Aplicar os filtros
+aplicar_filtro("Vertical", kernel_sobel_vertical)
+aplicar_filtro("Horizontal", kernel_sobel_horizontal)
+aplicar_filtro("Laplaciano", kernel_laplaciano)
+aplicar_filtro("45", kernel_45)
+aplicar_filtro("135", kernel_135)
 
 # Criar o heatmap final acumulado
 soma = np.sum(respostas_acumuladas, axis=0)
