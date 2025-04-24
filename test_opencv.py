@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import shutil
+from sklearn.cluster import KMeans
 
 # Se o argumento "clear" for passado sozinho, limpa a pasta 'resultados' inteira
 if len(sys.argv) == 2 and sys.argv[1] == "clear":
@@ -57,7 +58,6 @@ def processar_em_escalas(imagem_original):
         pasta_escala = os.path.join(pasta_resultados, f"escala_{escala}")
         os.makedirs(pasta_escala, exist_ok=True)
 
-        # Salvar imagem com blur usada nesta escala
         if escala > 0:
             imagem_blur = cv2.GaussianBlur(imagem_atual, (5, 5), sigmaX=1)
             cv2.imwrite(os.path.join(pasta_escala, f"imagem_blur_escala_{escala}.png"), imagem_blur)
@@ -99,7 +99,6 @@ def processar_em_escalas(imagem_original):
             plt.savefig(os.path.join(pasta_escala, "heatmap_dog.png"))
             plt.close()
 
-        # Aplicar filtros
         aplicar_filtro("Vertical", kernel_sobel_vertical)
         aplicar_filtro("Horizontal", kernel_sobel_horizontal)
         aplicar_filtro("Laplaciano", kernel_laplaciano)
@@ -107,12 +106,11 @@ def processar_em_escalas(imagem_original):
         aplicar_filtro("135", kernel_135)
         aplicar_dog()
 
-        # Criar heatmap final
+        # Heatmap final da escala
         soma = np.sum(respostas_acumuladas, axis=0)
         soma_normalizada = cv2.normalize(soma, None, 0, 255, cv2.NORM_MINMAX)
         soma_normalizada = np.uint8(soma_normalizada)
         mapa_calor_final = cv2.applyColorMap(soma_normalizada, cv2.COLORMAP_JET)
-
         heatmaps_finais.append(mapa_calor_final)
 
         plt.figure(figsize=(10, 4))
@@ -125,18 +123,13 @@ def processar_em_escalas(imagem_original):
 
         print(f"Resultados da escala {escala} salvos em: {pasta_escala}")
 
-        # Reduzir imagem para próxima escala
         if escala < 2:
             imagem_atual = cv2.pyrDown(imagem_blur)
 
-    # Criar imagem comparativa
+    # Comparativo final
     print("\nGerando comparativo final entre escalas...")
-    
-    # Garantir que todas as imagens tenham o mesmo tamanho e tipo
     altura_ref, largura_ref = heatmaps_finais[0].shape[:2]
     imagem_original_redimensionada = cv2.resize(imagem_original, (largura_ref, altura_ref))
-
-    # Títulos para cada imagem
     titulos = ["Original", "Escala 0", "Escala 1", "Escala 2"]
     imagens = [imagem_original_redimensionada] + heatmaps_finais
 
@@ -144,17 +137,48 @@ def processar_em_escalas(imagem_original):
     for img, titulo in zip(imagens, titulos):
         img_redim = cv2.resize(img, (largura_ref, altura_ref))
         img_com_texto = img_redim.copy()
-        cv2.rectangle(img_com_texto, (0, 0), (largura_ref, 30), (0, 0, 0), -1)  # fundo preto
+        cv2.rectangle(img_com_texto, (0, 0), (largura_ref, 30), (0, 0, 0), -1)
         cv2.putText(img_com_texto, titulo, (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
                     0.7, (255, 255, 255), 2, cv2.LINE_AA)
         imagens_comparativas.append(img_com_texto)
 
     comparativo = cv2.hconcat(imagens_comparativas)
-
     saida_comparativo = os.path.join(pasta_resultados, "comparativo_escalas.png")
     cv2.imwrite(saida_comparativo, comparativo)
     print(f"Comparativo final salvo em: {saida_comparativo}")
 
+    # --- Agrupamento por textura nas janelas ---
+    print("\nIniciando categorização por textura...")
 
-# Processar todas as escalas
+    janela = 3
+    passo = 1
+    altura, largura = respostas_acumuladas[0].shape
+    vetores = []
+    posicoes = []
+
+    for y in range(0, altura - janela, passo):
+        for x in range(0, largura - janela, passo):
+            vetor_janela = []
+            for resposta in respostas_acumuladas:
+                bloco = resposta[y:y+janela, x:x+janela]
+                media = np.mean(bloco)
+                vetor_janela.append(media)
+            vetores.append(vetor_janela)
+            posicoes.append((x, y))
+
+    vetores = np.array(vetores)
+    kmeans = KMeans(n_clusters=4, random_state=10).fit(vetores)
+    rotulos = kmeans.labels_
+
+    cores = np.random.randint(0, 255, size=(4, 3), dtype=np.uint8)
+    imagem_segmentada = np.zeros((altura, largura, 3), dtype=np.uint8)
+
+    for (x, y), r in zip(posicoes, rotulos):
+        imagem_segmentada[y:y+janela, x:x+janela] = cores[r]
+
+    caminho_saida_segmentada = os.path.join(pasta_resultados, "segmentacao_textura.png")
+    cv2.imwrite(caminho_saida_segmentada, imagem_segmentada)
+    print(f"Imagem segmentada por textura salva em: {caminho_saida_segmentada}")
+
+# Processar tudo
 processar_em_escalas(imagem)
