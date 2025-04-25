@@ -44,125 +44,82 @@ kernel_laplaciano = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float3
 kernel_45 = np.array([[0, -1, -1], [1, 0, -1], [1, 1, 0]], dtype=np.float32)
 kernel_135 = np.array([[1, 1, 0], [-1, 0, 1], [-1, -1, 0]], dtype=np.float32)
 
-# Lista global para respostas (temporária por escala)
-respostas_acumuladas = []
+# Processar tudo
+respostas_por_escala = []
+imagem_atual = imagem.copy()
 
-def processar_em_escalas(imagem_original):
-    imagem_atual = imagem_original.copy()
-    heatmaps_finais = []
+for escala in range(3):
+    print(f"\nProcessando escala {escala}...")
+    respostas_acumuladas = []
 
-    for escala in range(3):
-        print(f"\nProcessando escala {escala}...")
-        respostas_acumuladas.clear()
+    pasta_escala = os.path.join(pasta_resultados, f"escala_{escala}")
+    os.makedirs(pasta_escala, exist_ok=True)
 
-        pasta_escala = os.path.join(pasta_resultados, f"escala_{escala}")
-        os.makedirs(pasta_escala, exist_ok=True)
+    if escala > 0:
+        imagem_blur = cv2.GaussianBlur(imagem_atual, (5, 5), sigmaX=1)
+        imagem_atual = cv2.pyrDown(imagem_blur)
+    else:
+        imagem_blur = imagem_atual
 
-        if escala > 0:
-            imagem_blur = cv2.GaussianBlur(imagem_atual, (5, 5), sigmaX=1)
-            cv2.imwrite(os.path.join(pasta_escala, f"imagem_blur_escala_{escala}.png"), imagem_blur)
-        else:
-            imagem_blur = imagem_atual
-
-        def aplicar_filtro(nome, kernel):
-            resposta = cv2.filter2D(imagem_atual, -1, kernel)
-            resposta_gray = cv2.cvtColor(resposta, cv2.COLOR_BGR2GRAY)
-            resposta_normalizada = cv2.normalize(resposta_gray, None, 0, 255, cv2.NORM_MINMAX)
-            resposta_normalizada = np.uint8(resposta_normalizada)
-            mapa_calor = cv2.applyColorMap(resposta_normalizada, cv2.COLORMAP_JET)
-            respostas_acumuladas.append(resposta_normalizada.astype(np.float32))
-
-            plt.figure(figsize=(10, 4))
-            plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
-            plt.title(f"{nome} - Escala {escala}")
-            plt.axis('off')
-            plt.tight_layout()
-            plt.savefig(os.path.join(pasta_escala, f"heatmap_{nome.lower()}.png"))
-            plt.close()
-
-        def aplicar_dog():
-            imagem_gray = cv2.cvtColor(imagem_atual, cv2.COLOR_BGR2GRAY)
-            blur1 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=1)
-            blur2 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=2)
-            dog = cv2.subtract(blur1, blur2)
-            dog_shifted = dog - dog.min()
-            dog_normalizado = 255 * (dog_shifted / dog_shifted.max())
-            dog_normalizado = np.uint8(dog_normalizado)
-            mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
-            respostas_acumuladas.append(dog_normalizado.astype(np.float32))
-
-            plt.figure(figsize=(10, 4))
-            plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
-            plt.title(f"Filtro Circular (DoG) - Escala {escala}")
-            plt.axis('off')
-            plt.tight_layout()
-            plt.savefig(os.path.join(pasta_escala, "heatmap_dog.png"))
-            plt.close()
-
-        aplicar_filtro("Vertical", kernel_sobel_vertical)
-        aplicar_filtro("Horizontal", kernel_sobel_horizontal)
-        aplicar_filtro("Laplaciano", kernel_laplaciano)
-        aplicar_filtro("45", kernel_45)
-        aplicar_filtro("135", kernel_135)
-        aplicar_dog()
-
-        # Heatmap final da escala
-        soma = np.sum(respostas_acumuladas, axis=0)
-        soma_normalizada = cv2.normalize(soma, None, 0, 255, cv2.NORM_MINMAX)
-        soma_normalizada = np.uint8(soma_normalizada)
-        mapa_calor_final = cv2.applyColorMap(soma_normalizada, cv2.COLORMAP_JET)
-        heatmaps_finais.append(mapa_calor_final)
+    def aplicar_filtro(nome, kernel):
+        resposta = cv2.filter2D(imagem_atual, -1, kernel)
+        resposta_gray = cv2.cvtColor(resposta, cv2.COLOR_BGR2GRAY)
+        resposta_normalizada = cv2.normalize(resposta_gray, None, 0, 255, cv2.NORM_MINMAX)
+        resposta_normalizada = np.uint8(resposta_normalizada)
+        mapa_calor = cv2.applyColorMap(resposta_normalizada, cv2.COLORMAP_JET)
+        respostas_acumuladas.append(resposta_normalizada.astype(np.float32))
 
         plt.figure(figsize=(10, 4))
-        plt.imshow(cv2.cvtColor(mapa_calor_final, cv2.COLOR_BGR2RGB))
-        plt.title(f"Heatmap Final - Escala {escala}")
+        plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
+        plt.title(f"{nome} - Escala {escala}")
         plt.axis('off')
         plt.tight_layout()
-        plt.savefig(os.path.join(pasta_escala, "heatmap_final.png"))
+        plt.savefig(os.path.join(pasta_escala, f"heatmap_{nome.lower()}.png"))
         plt.close()
 
-        print(f"Resultados da escala {escala} salvos em: {pasta_escala}")
+    def aplicar_dog():
+        imagem_gray = cv2.cvtColor(imagem_atual, cv2.COLOR_BGR2GRAY)
+        blur1 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=1)
+        blur2 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=2)
+        dog = cv2.subtract(blur1, blur2)
+        dog_shifted = dog - dog.min()
+        dog_normalizado = 255 * (dog_shifted / dog_shifted.max())
+        dog_normalizado = np.uint8(dog_normalizado)
+        mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
+        respostas_acumuladas.append(dog_normalizado.astype(np.float32))
 
-        if escala < 2:
-            imagem_atual = cv2.pyrDown(imagem_blur)
+        plt.figure(figsize=(10, 4))
+        plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
+        plt.title(f"Filtro Circular (DoG) - Escala {escala}")
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(os.path.join(pasta_escala, "heatmap_dog.png"))
+        plt.close()
 
-    # Comparativo final
-    print("\nGerando comparativo final entre escalas...")
-    altura_ref, largura_ref = heatmaps_finais[0].shape[:2]
-    imagem_original_redimensionada = cv2.resize(imagem_original, (largura_ref, altura_ref))
-    titulos = ["Original", "Escala 0", "Escala 1", "Escala 2"]
-    imagens = [imagem_original_redimensionada] + heatmaps_finais
+    aplicar_filtro("Vertical", kernel_sobel_vertical)
+    aplicar_filtro("Horizontal", kernel_sobel_horizontal)
+    aplicar_filtro("Laplaciano", kernel_laplaciano)
+    aplicar_filtro("45", kernel_45)
+    aplicar_filtro("135", kernel_135)
+    aplicar_dog()
 
-    imagens_comparativas = []
-    for img, titulo in zip(imagens, titulos):
-        img_redim = cv2.resize(img, (largura_ref, altura_ref))
-        img_com_texto = img_redim.copy()
-        cv2.rectangle(img_com_texto, (0, 0), (largura_ref, 30), (0, 0, 0), -1)
-        cv2.putText(img_com_texto, titulo, (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        imagens_comparativas.append(img_com_texto)
+    respostas_por_escala.append((respostas_acumuladas.copy(), imagem_atual.copy()))
+    print(f"Resultados da escala {escala} salvos em: {pasta_escala}")
 
-    comparativo = cv2.hconcat(imagens_comparativas)
-    saida_comparativo = os.path.join(pasta_resultados, "comparativo_escalas.png")
-    cv2.imwrite(saida_comparativo, comparativo)
-    print(f"Comparativo final salvo em: {saida_comparativo}")
+# --- Segmentação para cada escala ---
+print("\nIniciando segmentação por textura para cada escala...")
 
-    # --- Agrupamento por textura nas janelas ---
-    print("\nIniciando categorização por textura...")
-
+for escala, (respostas, imagem_base) in enumerate(respostas_por_escala):
+    print(f"Segmentando escala {escala}...")
     janela = 3
     passo = 1
-    altura, largura = respostas_acumuladas[0].shape
+    altura, largura = respostas[0].shape
     vetores = []
     posicoes = []
 
     for y in range(0, altura - janela, passo):
         for x in range(0, largura - janela, passo):
-            vetor_janela = []
-            for resposta in respostas_acumuladas:
-                bloco = resposta[y:y+janela, x:x+janela]
-                media = np.mean(bloco)
-                vetor_janela.append(media)
+            vetor_janela = [np.mean(resp[y:y+janela, x:x+janela]) for resp in respostas]
             vetores.append(vetor_janela)
             posicoes.append((x, y))
 
@@ -176,9 +133,6 @@ def processar_em_escalas(imagem_original):
     for (x, y), r in zip(posicoes, rotulos):
         imagem_segmentada[y:y+janela, x:x+janela] = cores[r]
 
-    caminho_saida_segmentada = os.path.join(pasta_resultados, "segmentacao_textura.png")
-    cv2.imwrite(caminho_saida_segmentada, imagem_segmentada)
-    print(f"Imagem segmentada por textura salva em: {caminho_saida_segmentada}")
-
-# Processar tudo
-processar_em_escalas(imagem)
+    caminho_saida = os.path.join(pasta_resultados, f"segmentacao_textura_escala_{escala}.png")
+    cv2.imwrite(caminho_saida, imagem_segmentada)
+    print(f"Segmentação da escala {escala} salva em: {caminho_saida}")
