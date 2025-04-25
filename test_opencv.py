@@ -6,7 +6,7 @@ import os
 import shutil
 from sklearn.cluster import KMeans
 
-# Se o argumento "clear" for passado sozinho, limpa a pasta 'resultados' inteira
+# Se o argumento "clear" for passado, limpa a pasta 'resultados'
 if len(sys.argv) == 2 and sys.argv[1] == "clear":
     pasta_resultados = "resultados"
     if os.path.exists(pasta_resultados):
@@ -22,16 +22,14 @@ if len(sys.argv) < 2:
     print("Ou:   python3 script.py clear  (para limpar todos os resultados)")
     sys.exit()
 
-# Capturar o nome do arquivo da imagem
+# Caminho da imagem e preparação da pasta de resultados
 caminho_imagem = sys.argv[1]
 nome_arquivo = os.path.basename(caminho_imagem)
 nome_base = os.path.splitext(nome_arquivo)[0]
-
-# Criar diretório de saída específico para a imagem
 pasta_resultados = os.path.join("resultados", nome_base)
 os.makedirs(pasta_resultados, exist_ok=True)
 
-# Carregar imagem original
+# Carregar imagem
 imagem = cv2.imread(caminho_imagem)
 if imagem is None:
     print(f"Erro ao carregar a imagem '{caminho_imagem}'")
@@ -44,7 +42,7 @@ kernel_laplaciano = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float3
 kernel_45 = np.array([[0, -1, -1], [1, 0, -1], [1, 1, 0]], dtype=np.float32)
 kernel_135 = np.array([[1, 1, 0], [-1, 0, 1], [-1, -1, 0]], dtype=np.float32)
 
-# Processar tudo
+# Processar por escalas
 respostas_por_escala = []
 imagem_atual = imagem.copy()
 
@@ -69,13 +67,7 @@ for escala in range(3):
         mapa_calor = cv2.applyColorMap(resposta_normalizada, cv2.COLORMAP_JET)
         respostas_acumuladas.append(resposta_normalizada.astype(np.float32))
 
-        plt.figure(figsize=(10, 4))
-        plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
-        plt.title(f"{nome} - Escala {escala}")
-        plt.axis('off')
-        plt.tight_layout()
-        plt.savefig(os.path.join(pasta_escala, f"heatmap_{nome.lower()}.png"))
-        plt.close()
+        cv2.imwrite(os.path.join(pasta_escala, f"heatmap_{nome.lower()}.png"), mapa_calor)
 
     def aplicar_dog():
         imagem_gray = cv2.cvtColor(imagem_atual, cv2.COLOR_BGR2GRAY)
@@ -88,13 +80,7 @@ for escala in range(3):
         mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
         respostas_acumuladas.append(dog_normalizado.astype(np.float32))
 
-        plt.figure(figsize=(10, 4))
-        plt.imshow(cv2.cvtColor(mapa_calor, cv2.COLOR_BGR2RGB))
-        plt.title(f"Filtro Circular (DoG) - Escala {escala}")
-        plt.axis('off')
-        plt.tight_layout()
-        plt.savefig(os.path.join(pasta_escala, "heatmap_dog.png"))
-        plt.close()
+        cv2.imwrite(os.path.join(pasta_escala, "heatmap_dog.png"), mapa_calor)
 
     aplicar_filtro("Vertical", kernel_sobel_vertical)
     aplicar_filtro("Horizontal", kernel_sobel_horizontal)
@@ -106,8 +92,10 @@ for escala in range(3):
     respostas_por_escala.append((respostas_acumuladas.copy(), imagem_atual.copy()))
     print(f"Resultados da escala {escala} salvos em: {pasta_escala}")
 
-# --- Segmentação para cada escala ---
+# Segmentação por textura
 print("\nIniciando segmentação por textura para cada escala...")
+
+segmentacoes = []
 
 for escala, (respostas, imagem_base) in enumerate(respostas_por_escala):
     print(f"Segmentando escala {escala}...")
@@ -135,4 +123,59 @@ for escala, (respostas, imagem_base) in enumerate(respostas_por_escala):
 
     caminho_saida = os.path.join(pasta_resultados, f"segmentacao_textura_escala_{escala}.png")
     cv2.imwrite(caminho_saida, imagem_segmentada)
+    segmentacoes.append(imagem_segmentada)
     print(f"Segmentação da escala {escala} salva em: {caminho_saida}")
+
+# Comparativo final de heatmaps
+print("\nGerando imagem comparativa final dos heatmaps...")
+
+heatmaps_finais = []
+referencia_shape = respostas_por_escala[0][1].shape[:2][::-1]  # largura x altura da escala 0
+for escala, (_, imagem_original_escala) in enumerate(respostas_por_escala):
+    dog_path = os.path.join(pasta_resultados, f"escala_{escala}", "heatmap_dog.png")
+    dog = cv2.imread(dog_path)
+    if dog is not None:
+        resized_dog = cv2.resize(dog, referencia_shape)
+        heatmaps_finais.append((resized_dog, f"Escala {escala}"))
+
+# Adiciona a imagem original redimensionada como referência
+img_original_resized = cv2.resize(imagem, referencia_shape)
+heatmaps_finais.insert(0, (img_original_resized, "Original"))
+
+# Monta imagem lado a lado
+largura_img, altura_img = referencia_shape
+largura_total = largura_img * len(heatmaps_finais)
+comparativo_heatmap = np.zeros((altura_img + 40, largura_total, 3), dtype=np.uint8) + 255
+
+x_offset = 0
+for img, label in heatmaps_finais:
+    comparativo_heatmap[40:40+altura_img, x_offset:x_offset+largura_img] = img
+    cv2.putText(comparativo_heatmap, label, (x_offset + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+    x_offset += largura_img
+
+cv2.imwrite(os.path.join(pasta_resultados, "comparativo_heatmaps.png"), comparativo_heatmap)
+print("Comparativo de heatmaps salvo.")
+
+# Comparativo final das segmentações
+print("Gerando imagem comparativa final das segmentações...")
+
+segmentacoes_resized = [cv2.resize(seg, referencia_shape) for seg in segmentacoes]
+img_original_resized = cv2.resize(imagem, referencia_shape)
+
+# Junta imagem original + segmentações
+segmentacoes_com_original = [img_original_resized] + segmentacoes_resized
+rotulos_segmentacoes = ["Original"] + [f"Escala {i}" for i in range(len(segmentacoes))]
+
+comparativo_segmentacoes = np.zeros((altura_img + 40, largura_img * len(segmentacoes_com_original), 3), dtype=np.uint8) + 255
+
+x_offset = 0
+for idx, img in enumerate(segmentacoes_com_original):
+    comparativo_segmentacoes[40:40+altura_img, x_offset:x_offset+largura_img] = img
+    cv2.putText(comparativo_segmentacoes, rotulos_segmentacoes[idx], (x_offset + 10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+    x_offset += largura_img
+
+cv2.imwrite(os.path.join(pasta_resultados, "comparativo_segmentacoes.png"), comparativo_segmentacoes)
+print("Comparativo de segmentações salvo.")
+
+
