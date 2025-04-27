@@ -6,176 +6,160 @@ import os
 import shutil
 from sklearn.cluster import KMeans
 
-# Se o argumento "clear" for passado, limpa a pasta 'resultados'
-if len(sys.argv) == 2 and sys.argv[1] == "clear":
-    pasta_resultados = "resultados"
-    if os.path.exists(pasta_resultados):
-        shutil.rmtree(pasta_resultados)
-        print(f"Pasta '{pasta_resultados}' limpa com sucesso.")
+def limpar_resultados(pasta="resultados"):
+    if os.path.exists(pasta):
+        shutil.rmtree(pasta)
+        print(f"Pasta '{pasta}' limpa com sucesso.")
     else:
-        print(f"Pasta '{pasta_resultados}' não existe.")
-    sys.exit()
+        print(f"Pasta '{pasta}' não existe.")
 
-# Verificar se o nome da imagem foi passado como argumento
-if len(sys.argv) < 2:
-    print("Uso: python3 script.py nome_da_imagem.jpg")
-    print("Ou:   python3 script.py clear  (para limpar todos os resultados)")
-    sys.exit()
+def preparar_pasta_resultados(caminho_imagem):
+    nome_arquivo = os.path.basename(caminho_imagem)
+    nome_base = os.path.splitext(nome_arquivo)[0]
+    pasta_resultados = os.path.join("resultados", nome_base)
+    os.makedirs(pasta_resultados, exist_ok=True)
+    return pasta_resultados, nome_base
 
-# Caminho da imagem e preparação da pasta de resultados
-caminho_imagem = sys.argv[1]
-nome_arquivo = os.path.basename(caminho_imagem)
-nome_base = os.path.splitext(nome_arquivo)[0]
-pasta_resultados = os.path.join("resultados", nome_base)
-os.makedirs(pasta_resultados, exist_ok=True)
+def carregar_imagem(caminho_imagem):
+    imagem = cv2.imread(caminho_imagem)
+    if imagem is None:
+        print(f"Erro ao carregar a imagem '{caminho_imagem}'")
+        sys.exit()
+    return imagem
 
-# Carregar imagem
-imagem = cv2.imread(caminho_imagem)
-if imagem is None:
-    print(f"Erro ao carregar a imagem '{caminho_imagem}'")
-    exit()
+def definir_kernels():
+    return {
+        "Vertical": np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32),
+        "Horizontal": np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32),
+        "Laplaciano": np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32),
+        "45": np.array([[0, -1, -1], [1, 0, -1], [1, 1, 0]], dtype=np.float32),
+        "135": np.array([[1, 1, 0], [-1, 0, 1], [-1, -1, 0]], dtype=np.float32)
+    }
 
-# Filtros
-kernel_sobel_vertical = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-kernel_sobel_horizontal = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
-kernel_laplaciano = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32)
-kernel_45 = np.array([[0, -1, -1], [1, 0, -1], [1, 1, 0]], dtype=np.float32)
-kernel_135 = np.array([[1, 1, 0], [-1, 0, 1], [-1, -1, 0]], dtype=np.float32)
-
-# Processar por escalas
-respostas_por_escala = []
-imagem_atual = imagem.copy()
-
-for escala in range(3):
-    print(f"\nProcessando escala {escala}...")
-    respostas_acumuladas = []
-
-    pasta_escala = os.path.join(pasta_resultados, f"escala_{escala}")
-    os.makedirs(pasta_escala, exist_ok=True)
-
-    if escala > 0:
-        imagem_blur = cv2.GaussianBlur(imagem_atual, (5, 5), sigmaX=1)
-        imagem_atual = cv2.pyrDown(imagem_blur)
-    else:
-        imagem_blur = imagem_atual
-
-    def aplicar_filtro(nome, kernel):
-        resposta = cv2.filter2D(imagem_atual, -1, kernel)
+def aplicar_filtros(imagem, pasta_saida, kernels):
+    respostas = []
+    for nome, kernel in kernels.items():
+        resposta = cv2.filter2D(imagem, -1, kernel)
         resposta_gray = cv2.cvtColor(resposta, cv2.COLOR_BGR2GRAY)
-        resposta_normalizada = cv2.normalize(resposta_gray, None, 0, 255, cv2.NORM_MINMAX)
-        resposta_normalizada = np.uint8(resposta_normalizada)
+        resposta_normalizada = cv2.normalize(resposta_gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         mapa_calor = cv2.applyColorMap(resposta_normalizada, cv2.COLORMAP_JET)
-        respostas_acumuladas.append(resposta_normalizada.astype(np.float32))
+        respostas.append(resposta_normalizada.astype(np.float32))
+        cv2.imwrite(os.path.join(pasta_saida, f"heatmap_{nome.lower()}.png"), mapa_calor)
+    return respostas
 
-        cv2.imwrite(os.path.join(pasta_escala, f"heatmap_{nome.lower()}.png"), mapa_calor)
+def aplicar_dog(imagem, pasta_saida):
+    imagem_gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+    blur1 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=1)
+    blur2 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=2)
+    dog = cv2.subtract(blur1, blur2)
+    dog_normalizado = cv2.normalize(dog, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
+    cv2.imwrite(os.path.join(pasta_saida, "heatmap_dog.png"), mapa_calor)
+    return dog_normalizado.astype(np.float32)
 
-    def aplicar_dog():
-        imagem_gray = cv2.cvtColor(imagem_atual, cv2.COLOR_BGR2GRAY)
-        blur1 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=1)
-        blur2 = cv2.GaussianBlur(imagem_gray, (9, 9), sigmaX=2)
-        dog = cv2.subtract(blur1, blur2)
-        dog_shifted = dog - dog.min()
-        dog_normalizado = 255 * (dog_shifted / dog_shifted.max())
-        dog_normalizado = np.uint8(dog_normalizado)
-        mapa_calor = cv2.applyColorMap(dog_normalizado, cv2.COLORMAP_JET)
-        respostas_acumuladas.append(dog_normalizado.astype(np.float32))
+def processar_escalas(imagem, pasta_resultados, num_escalas=3):
+    respostas_por_escala = []
+    imagem_atual = imagem.copy()
+    kernels = definir_kernels()
 
-        cv2.imwrite(os.path.join(pasta_escala, "heatmap_dog.png"), mapa_calor)
+    for escala in range(num_escalas):
+        print(f"\nProcessando escala {escala}...")
+        pasta_escala = os.path.join(pasta_resultados, f"escala_{escala}")
+        os.makedirs(pasta_escala, exist_ok=True)
 
-    aplicar_filtro("Vertical", kernel_sobel_vertical)
-    aplicar_filtro("Horizontal", kernel_sobel_horizontal)
-    aplicar_filtro("Laplaciano", kernel_laplaciano)
-    aplicar_filtro("45", kernel_45)
-    aplicar_filtro("135", kernel_135)
-    aplicar_dog()
+        if escala > 0:
+            imagem_blur = cv2.GaussianBlur(imagem_atual, (5, 5), sigmaX=1)
+            imagem_atual = cv2.pyrDown(imagem_blur)
 
-    respostas_por_escala.append((respostas_acumuladas.copy(), imagem_atual.copy()))
-    print(f"Resultados da escala {escala} salvos em: {pasta_escala}")
+        respostas = aplicar_filtros(imagem_atual, pasta_escala, kernels)
+        respostas.append(aplicar_dog(imagem_atual, pasta_escala))
 
-# Segmentação por textura
-print("\nIniciando segmentação por textura para cada escala...")
+        respostas_por_escala.append((respostas, imagem_atual.copy()))
+    
+    return respostas_por_escala
 
-segmentacoes = []
-
-for escala, (respostas, imagem_base) in enumerate(respostas_por_escala):
-    print(f"Segmentando escala {escala}...")
-    janela = 3
-    passo = 1
+def segmentar_textura(respostas, janela=3, passo=1, n_clusters=4):
     altura, largura = respostas[0].shape
-    vetores = []
-    posicoes = []
+    vetores, posicoes = [], []
 
     for y in range(0, altura - janela, passo):
         for x in range(0, largura - janela, passo):
-            vetor_janela = [np.mean(resp[y:y+janela, x:x+janela]) for resp in respostas]
-            vetores.append(vetor_janela)
+            vetor = [np.mean(resp[y:y+janela, x:x+janela]) for resp in respostas]
+            vetores.append(vetor)
             posicoes.append((x, y))
 
     vetores = np.array(vetores)
-    kmeans = KMeans(n_clusters=4, random_state=10).fit(vetores)
-    rotulos = kmeans.labels_
+    kmeans = KMeans(n_clusters=n_clusters, random_state=10).fit(vetores)
+    return kmeans.labels_, posicoes, (largura, altura)
 
-    cores = np.random.randint(0, 255, size=(4, 3), dtype=np.uint8)
-    imagem_segmentada = np.zeros((altura, largura, 3), dtype=np.uint8)
+def salvar_segmentacao(rotulos, posicoes, dimensoes, janela, pasta_saida, escala):
+    largura, altura = dimensoes
+    cores = np.random.randint(0, 255, (np.max(rotulos)+1, 3), dtype=np.uint8)
+    segmentacao = np.zeros((altura, largura, 3), dtype=np.uint8)
 
     for (x, y), r in zip(posicoes, rotulos):
-        imagem_segmentada[y:y+janela, x:x+janela] = cores[r]
+        segmentacao[y:y+janela, x:x+janela] = cores[r]
 
-    caminho_saida = os.path.join(pasta_resultados, f"segmentacao_textura_escala_{escala}.png")
-    cv2.imwrite(caminho_saida, imagem_segmentada)
-    segmentacoes.append(imagem_segmentada)
-    print(f"Segmentação da escala {escala} salva em: {caminho_saida}")
+    caminho_saida = os.path.join(pasta_saida, f"segmentacao_textura_escala_{escala}.png")
+    cv2.imwrite(caminho_saida, segmentacao)
+    return segmentacao
 
-# Comparativo final de heatmaps
-print("\nGerando imagem comparativa final dos heatmaps...")
+def gerar_heatmap_final(respostas, pasta_saida, escala):
+    combinacao = np.mean(respostas, axis=0)
+    combinacao_norm = cv2.normalize(combinacao, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    heatmap_final = cv2.applyColorMap(combinacao_norm, cv2.COLORMAP_JET)
+    caminho_saida = os.path.join(pasta_saida, f"escala_{escala}", "heatmap_final.png")
+    cv2.imwrite(caminho_saida, heatmap_final)
 
-heatmaps_finais = []
-referencia_shape = respostas_por_escala[0][1].shape[:2][::-1]  # largura x altura da escala 0
-for escala, (_, imagem_original_escala) in enumerate(respostas_por_escala):
-    dog_path = os.path.join(pasta_resultados, f"escala_{escala}", "heatmap_dog.png")
-    dog = cv2.imread(dog_path)
-    if dog is not None:
-        resized_dog = cv2.resize(dog, referencia_shape)
-        heatmaps_finais.append((resized_dog, f"Escala {escala}"))
+def gerar_comparativo(imagens_rotuladas, pasta_saida, nome_saida, referencia_shape):
+    largura_img, altura_img = referencia_shape
+    largura_total = largura_img * len(imagens_rotuladas)
+    comparativo = np.full((altura_img + 40, largura_total, 3), 255, dtype=np.uint8)
 
-# Adiciona a imagem original redimensionada como referência
-img_original_resized = cv2.resize(imagem, referencia_shape)
-heatmaps_finais.insert(0, (img_original_resized, "Original"))
+    x_offset = 0
+    for img, label in imagens_rotuladas:
+        comparativo[40:40+altura_img, x_offset:x_offset+largura_img] = img
+        cv2.putText(comparativo, label, (x_offset + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+        x_offset += largura_img
 
-# Monta imagem lado a lado
-largura_img, altura_img = referencia_shape
-largura_total = largura_img * len(heatmaps_finais)
-comparativo_heatmap = np.zeros((altura_img + 40, largura_total, 3), dtype=np.uint8) + 255
+    cv2.imwrite(os.path.join(pasta_saida, nome_saida), comparativo)
 
-x_offset = 0
-for img, label in heatmaps_finais:
-    comparativo_heatmap[40:40+altura_img, x_offset:x_offset+largura_img] = img
-    cv2.putText(comparativo_heatmap, label, (x_offset + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
-    x_offset += largura_img
+def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "clear":
+        limpar_resultados()
+        sys.exit()
 
-cv2.imwrite(os.path.join(pasta_resultados, "comparativo_heatmaps.png"), comparativo_heatmap)
-print("Comparativo de heatmaps salvo.")
+    if len(sys.argv) < 2:
+        print("Uso: python3 script.py nome_da_imagem.jpg")
+        print("Ou:  python3 script.py clear")
+        sys.exit()
 
-# Comparativo final das segmentações
-print("Gerando imagem comparativa final das segmentações...")
+    caminho_imagem = sys.argv[1]
+    imagem = carregar_imagem(caminho_imagem)
+    pasta_resultados, nome_base = preparar_pasta_resultados(caminho_imagem)
 
-segmentacoes_resized = [cv2.resize(seg, referencia_shape) for seg in segmentacoes]
-img_original_resized = cv2.resize(imagem, referencia_shape)
+    respostas_por_escala = processar_escalas(imagem, pasta_resultados)
 
-# Junta imagem original + segmentações
-segmentacoes_com_original = [img_original_resized] + segmentacoes_resized
-rotulos_segmentacoes = ["Original"] + [f"Escala {i}" for i in range(len(segmentacoes))]
+    segmentacoes = []
+    for escala, (respostas, imagem_base) in enumerate(respostas_por_escala):
+        print(f"\nSegmentando textura - Escala {escala}...")
+        rotulos, posicoes, dimensoes = segmentar_textura(respostas)
+        segmentacao = salvar_segmentacao(rotulos, posicoes, dimensoes, janela=3, pasta_saida=pasta_resultados, escala=escala)
+        segmentacoes.append(segmentacao)
+        gerar_heatmap_final(respostas, pasta_resultados, escala)
 
-comparativo_segmentacoes = np.zeros((altura_img + 40, largura_img * len(segmentacoes_com_original), 3), dtype=np.uint8) + 255
+    referencia_shape = respostas_por_escala[0][1].shape[:2][::-1]  # largura, altura
+    print("\nGerando comparativo de heatmaps...")
+    heatmaps_finais = [(cv2.resize(cv2.imread(os.path.join(pasta_resultados, f"escala_{i}", "heatmap_dog.png")), referencia_shape), f"Escala {i}") for i in range(len(respostas_por_escala))]
+    heatmaps_finais.insert(0, (cv2.resize(imagem, referencia_shape), "Original"))
+    gerar_comparativo(heatmaps_finais, pasta_resultados, "comparativo_heatmaps.png", referencia_shape)
 
-x_offset = 0
-for idx, img in enumerate(segmentacoes_com_original):
-    comparativo_segmentacoes[40:40+altura_img, x_offset:x_offset+largura_img] = img
-    cv2.putText(comparativo_segmentacoes, rotulos_segmentacoes[idx], (x_offset + 10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
-    x_offset += largura_img
+    print("Gerando comparativo de segmentações...")
+    segmentacoes_resized = [cv2.resize(seg, referencia_shape) for seg in segmentacoes]
+    segmentacoes_com_original = [(cv2.resize(imagem, referencia_shape), "Original")] + [(seg, f"Escala {i}") for i, seg in enumerate(segmentacoes_resized)]
+    gerar_comparativo(segmentacoes_com_original, pasta_resultados, "comparativo_segmentacoes.png", referencia_shape)
 
-cv2.imwrite(os.path.join(pasta_resultados, "comparativo_segmentacoes.png"), comparativo_segmentacoes)
-print("Comparativo de segmentações salvo.")
+    print("\nProcessamento finalizado.")
 
-
+if __name__ == "__main__":
+    main()
