@@ -39,7 +39,7 @@ Certifique-se de ter o seguinte instalado em seu sistema:
 Para executar o script, use o seguinte comando:
 
 ```sh
-python3 test_opencv.py <CAMINHO_RELATIVO_DA_IMAGEM>
+python3 test_opencv.py <CAMINHO_RELATIVO_DO_ARQUIVO_COM_AS_IMAGENS>
 ```
 
 Para remover todos os resultados, execute:
